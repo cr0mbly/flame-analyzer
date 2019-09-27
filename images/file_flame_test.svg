@@ -1,0 +1,1354 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1000" height="342" onload="init(evt)" viewBox="0 0 1000 342" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs >
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	.func_g:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	var details, searchbtn, matchedtxt, svg;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+	}
+
+	// mouse-over for info
+	function s(node) {		// show
+		info = g_to_text(node);
+		details.nodeValue = "Function: " + info;
+	}
+	function c() {			// clear
+		details.nodeValue = ' ';
+	}
+
+	// ctrl-F for search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+	})
+
+	// functions
+	function find_child(parent, name, attr) {
+		var children = parent.childNodes;
+		for (var i=0; i<children.length;i++) {
+			if (children[i].tagName == name)
+				return (attr != undefined) ? children[i].attributes[attr].value : children[i];
+		}
+		return;
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_"+attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_"+attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_"+attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes["width"].value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes["x"].value = parseFloat(r.attributes["x"].value) +3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2*12*0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		// Fit in full text width
+		if (/^ *$/.test(txt) || t.getSubStringLength(0, txt.length) < w)
+			return;
+
+		for (var x=txt.length-2; x>0; x--) {
+			if (t.getSubStringLength(0, x+2) <= w) {
+				t.textContent = txt.substring(0,x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes["x"] != undefined) {
+				orig_save(e, "x");
+				e.attributes["x"].value = (parseFloat(e.attributes["x"].value) - x - 10) * ratio + 10;
+				if(e.tagName == "text") e.attributes["x"].value = find_child(e.parentNode, "rect", "x") + 3;
+			}
+			if (e.attributes["width"] != undefined) {
+				orig_save(e, "width");
+				e.attributes["width"].value = parseFloat(e.attributes["width"].value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_child(c[i], x-10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes["x"] != undefined) {
+				orig_save(e, "x");
+				e.attributes["x"].value = 10;
+			}
+			if (e.attributes["width"] != undefined) {
+				orig_save(e, "width");
+				e.attributes["width"].value = parseInt(svg.width.baseVal.value) - (10*2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for(var i=0, c=e.childNodes; i<c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr["width"].value);
+		var xmin = parseFloat(attr["x"].value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr["y"].value);
+		var ratio = (svg.width.baseVal.value - 2*10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		var unzoombtn = document.getElementById("unzoom");
+		unzoombtn.style["opacity"] = "1.0";
+
+		var el = document.getElementsByTagName("g");
+		for(var i=0;i<el.length;i++){
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a["x"].value);
+			var ew = parseFloat(a["width"].value);
+			// Is it an ancestor
+			if (0 == 0) {
+				var upstack = parseFloat(a["y"].value) > ymin;
+			} else {
+				var upstack = parseFloat(a["y"].value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.style["opacity"] = "0.5";
+					zoom_parent(e);
+					e.onclick = function(e){unzoom(); zoom(this);};
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.style["display"] = "none";
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.style["display"] = "none";
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					e.onclick = function(e){zoom(this);};
+					update_text(e);
+				}
+			}
+		}
+	}
+	function unzoom() {
+		var unzoombtn = document.getElementById("unzoom");
+		unzoombtn.style["opacity"] = "0.0";
+
+		var el = document.getElementsByTagName("g");
+		for(i=0;i<el.length;i++) {
+			el[i].style["display"] = "block";
+			el[i].style["opacity"] = "1";
+			zoom_reset(el[i]);
+			update_text(el[i]);
+		}
+	}
+
+	// search
+	function reset_search() {
+		var el = document.getElementsByTagName("rect");
+		for (var i=0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)", "");
+			if (term != null) {
+				search(term)
+			}
+		} else {
+			reset_search();
+			searching = 0;
+			searchbtn.style["opacity"] = "0.1";
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.style["opacity"] = "0.0";
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		var re = new RegExp(term);
+		var el = document.getElementsByTagName("g");
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			if (e.attributes["class"].value != "func_g")
+				continue;
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (rect == null) {
+				// the rect might be wrapped in an anchor
+				// if nameattr href is being used
+				if (rect = find_child(e, "a")) {
+				    rect = find_child(r, "rect");
+				}
+			}
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes["width"].value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes["x"].value);
+				orig_save(rect, "fill");
+				rect.attributes["fill"].value =
+				    "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+
+		searchbtn.style["opacity"] = "1.0";
+		searchbtn.firstChild.nodeValue = "Reset Search"
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.style["opacity"] = "1.0";
+		pct = 100 * count / maxwidth;
+		if (pct == 100)
+			pct = "100"
+		else
+			pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+	function searchover(e) {
+		searchbtn.style["opacity"] = "1.0";
+	}
+	function searchout(e) {
+		if (searching) {
+			searchbtn.style["opacity"] = "1.0";
+		} else {
+			searchbtn.style["opacity"] = "0.1";
+		}
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1000.0" height="342.0" fill="url(#background)"  />
+<text text-anchor="middle" x="500.00" y="24" font-size="17" font-family="Verdana" fill="rgb(0,0,0)"  >Made 7680 SQL queries in 8 seconds and 250 milliseconds.</text>
+<text text-anchor="" x="10.00" y="325" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="details" > </text>
+<text text-anchor="" x="10.00" y="24" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="unzoom" onclick="unzoom()" style="opacity:0.0;cursor:pointer" >Reset Zoom</text>
+<text text-anchor="" x="890.00" y="24" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="search" onmouseover="searchover()" onmouseout="searchout()" onclick="search_prompt()" style="opacity:0.1;cursor:pointer" >Search</text>
+<text text-anchor="" x="890.00" y="325" font-size="12" font-family="Verdana" fill="rgb(0,0,0)" id="matched" > </text>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__getitem__(django.db.utils) (12 samples, 0.15%)</title><rect x="723.3" y="181" width="1.5" height="15.0" fill="rgb(212,81,16)" rx="2" ry="2" />
+<text text-anchor="" x="726.28" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(main.utils.models.mixins) (282 samples, 3.53%)</title><rect x="681.8" y="149" width="34.6" height="15.0" fill="rgb(248,39,24)" rx="2" ry="2" />
+<text text-anchor="" x="684.82" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >__..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__getattr__(django.conf) (27 samples, 0.34%)</title><rect x="103.5" y="133" width="3.3" height="15.0" fill="rgb(245,81,0)" rx="2" ry="2" />
+<text text-anchor="" x="106.49" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_initial_alias(django.db.models.sql.query) (15 samples, 0.19%)</title><rect x="297.7" y="101" width="1.8" height="15.0" fill="rgb(220,152,3)" rx="2" ry="2" />
+<text text-anchor="" x="300.69" y="111.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>all(django.db.models.manager) (1 samples, 0.01%)</title><rect x="55.8" y="277" width="0.1" height="15.0" fill="rgb(229,140,52)" rx="2" ry="2" />
+<text text-anchor="" x="58.76" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.utils.tree) (11 samples, 0.14%)</title><rect x="988.7" y="213" width="1.3" height="15.0" fill="rgb(234,78,6)" rx="2" ry="2" />
+<text text-anchor="" x="991.65" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>extra_select(django.db.models.sql.query) (39 samples, 0.49%)</title><rect x="247.8" y="69" width="4.7" height="15.0" fill="rgb(213,150,17)" rx="2" ry="2" />
+<text text-anchor="" x="250.76" y="79.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__getattr__(django.db.backends.utils) (12 samples, 0.15%)</title><rect x="762.2" y="165" width="1.4" height="15.0" fill="rgb(208,209,28)" rx="2" ry="2" />
+<text text-anchor="" x="765.18" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>as_sql(django.db.models.sql.where) (250 samples, 3.13%)</title><rect x="126.7" y="149" width="30.6" height="15.0" fill="rgb(235,192,33)" rx="2" ry="2" />
+<text text-anchor="" x="129.67" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >as..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;listcomp&gt;(django.db.models.query) (46 samples, 0.58%)</title><rect x="89.4" y="197" width="5.6" height="15.0" fill="rgb(214,165,32)" rx="2" ry="2" />
+<text text-anchor="" x="92.38" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>build_filter(django.db.models.sql.query) (606 samples, 7.59%)</title><rect x="861.2" y="181" width="74.3" height="15.0" fill="rgb(213,193,21)" rx="2" ry="2" />
+<text text-anchor="" x="864.18" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >build_fi..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_new_instance(django.utils.tree) (18 samples, 0.23%)</title><rect x="826.5" y="165" width="2.2" height="15.0" fill="rgb(248,97,47)" rx="2" ry="2" />
+<text text-anchor="" x="829.46" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__enter__(publons_flame.context_managers) (2 samples, 0.03%)</title><rect x="15.4" y="277" width="0.2" height="15.0" fill="rgb(211,7,49)" rx="2" ry="2" />
+<text text-anchor="" x="18.40" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_meta(django.db.models.sql.query) (3 samples, 0.04%)</title><rect x="926.3" y="149" width="0.4" height="15.0" fill="rgb(213,46,22)" rx="2" ry="2" />
+<text text-anchor="" x="929.33" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>filter(django.db.models.query) (1,238 samples, 15.50%)</title><rect x="793.3" y="245" width="151.9" height="15.0" fill="rgb(249,211,38)" rx="2" ry="2" />
+<text text-anchor="" x="796.34" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >filter(django.db.mo..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__contains__(_weakrefset) (16 samples, 0.20%)</title><rect x="859.2" y="133" width="2.0" height="15.0" fill="rgb(213,137,42)" rx="2" ry="2" />
+<text text-anchor="" x="862.22" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_queryset(django.db.models.manager) (128 samples, 1.60%)</title><rect x="974.3" y="261" width="15.7" height="15.0" fill="rgb(226,212,19)" rx="2" ry="2" />
+<text text-anchor="" x="977.30" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__eq__(django.db.models.fields) (58 samples, 0.73%)</title><rect x="290.6" y="85" width="7.1" height="15.0" fill="rgb(224,66,38)" rx="2" ry="2" />
+<text text-anchor="" x="293.58" y="95.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>execute(raven.contrib.django.client) (2 samples, 0.03%)</title><rect x="21.5" y="197" width="0.3" height="15.0" fill="rgb(251,222,50)" rx="2" ry="2" />
+<text text-anchor="" x="24.53" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_clone(django.db.models.query) (203 samples, 2.54%)</title><rect x="947.2" y="229" width="24.9" height="15.0" fill="rgb(245,96,35)" rx="2" ry="2" />
+<text text-anchor="" x="950.18" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>extra_select(django.db.models.sql.query) (4 samples, 0.05%)</title><rect x="264.1" y="117" width="0.5" height="15.0" fill="rgb(240,32,54)" rx="2" ry="2" />
+<text text-anchor="" x="267.08" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>as_sql(django.db.models.expressions) (11 samples, 0.14%)</title><rect x="150.4" y="53" width="1.3" height="15.0" fill="rgb(227,124,53)" rx="2" ry="2" />
+<text text-anchor="" x="153.35" y="63.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>deferred_to_data(django.db.models.sql.query) (4 samples, 0.05%)</title><rect x="281.6" y="85" width="0.5" height="15.0" fill="rgb(211,112,51)" rx="2" ry="2" />
+<text text-anchor="" x="284.62" y="95.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.models.base) (10 samples, 0.13%)</title><rect x="680.6" y="149" width="1.2" height="15.0" fill="rgb(221,212,24)" rx="2" ry="2" />
+<text text-anchor="" x="683.59" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;listcomp&gt;(django.db.models.sql.query) (3 samples, 0.04%)</title><rect x="908.2" y="133" width="0.3" height="15.0" fill="rgb(231,165,1)" rx="2" ry="2" />
+<text text-anchor="" x="911.17" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;listcomp&gt;(main.utils.models.mixins) (21 samples, 0.26%)</title><rect x="685.7" y="117" width="2.6" height="15.0" fill="rgb(236,85,32)" rx="2" ry="2" />
+<text text-anchor="" x="688.74" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_group_by(django.db.models.sql.compiler) (3 samples, 0.04%)</title><rect x="171.1" y="149" width="0.4" height="15.0" fill="rgb(232,32,17)" rx="2" ry="2" />
+<text text-anchor="" x="174.08" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.utils.tree) (8 samples, 0.10%)</title><rect x="870.9" y="165" width="1.0" height="15.0" fill="rgb(210,215,5)" rx="2" ry="2" />
+<text text-anchor="" x="873.87" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>send(django.dispatch.dispatcher) (47 samples, 0.59%)</title><rect x="716.4" y="149" width="5.8" height="15.0" fill="rgb(248,214,27)" rx="2" ry="2" />
+<text text-anchor="" x="719.41" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_db_prep_value(django.db.models.fields) (3 samples, 0.04%)</title><rect x="157.0" y="69" width="0.3" height="15.0" fill="rgb(236,162,19)" rx="2" ry="2" />
+<text text-anchor="" x="159.98" y="79.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>contains_aggregate(django.db.models.lookups) (22 samples, 0.28%)</title><rect x="312.0" y="37" width="2.7" height="15.0" fill="rgb(228,90,39)" rx="2" ry="2" />
+<text text-anchor="" x="315.05" y="47.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__eq__(django.db.models.fields) (11 samples, 0.14%)</title><rect x="901.2" y="149" width="1.3" height="15.0" fill="rgb(223,56,12)" rx="2" ry="2" />
+<text text-anchor="" x="904.18" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>unref_alias(django.db.models.sql.query) (6 samples, 0.08%)</title><rect x="318.2" y="149" width="0.7" height="15.0" fill="rgb(232,213,35)" rx="2" ry="2" />
+<text text-anchor="" x="321.18" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__len__(django.db.models.query) (5,893 samples, 73.77%)</title><rect x="70.1" y="245" width="723.0" height="15.0" fill="rgb(216,229,24)" rx="2" ry="2" />
+<text text-anchor="" x="73.12" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >__len__(django.db.models.query)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_prep_value(django.db.models.fields) (12 samples, 0.15%)</title><rect x="890.0" y="101" width="1.5" height="15.0" fill="rgb(213,48,23)" rx="2" ry="2" />
+<text text-anchor="" x="893.01" y="111.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.utils.tree) (12 samples, 0.15%)</title><rect x="827.2" y="149" width="1.5" height="15.0" fill="rgb(243,164,53)" rx="2" ry="2" />
+<text text-anchor="" x="830.20" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;genexpr&gt;(django.db.models.sql.where) (54 samples, 0.68%)</title><rect x="308.1" y="85" width="6.6" height="15.0" fill="rgb(224,52,2)" rx="2" ry="2" />
+<text text-anchor="" x="311.12" y="95.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>cursor_iter(django.db.models.sql.compiler) (26 samples, 0.33%)</title><rect x="52.6" y="213" width="3.2" height="15.0" fill="rgb(234,77,52)" rx="2" ry="2" />
+<text text-anchor="" x="55.57" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>validate_no_broken_transaction(django.db.backends.base.base) (1 samples, 0.01%)</title><rect x="642.4" y="133" width="0.2" height="15.0" fill="rgb(225,36,16)" rx="2" ry="2" />
+<text text-anchor="" x="645.44" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>promote_joins(django.db.models.sql.query) (9 samples, 0.11%)</title><rect x="941.8" y="165" width="1.1" height="15.0" fill="rgb(213,197,5)" rx="2" ry="2" />
+<text text-anchor="" x="944.79" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.models.sql.datastructures) (6 samples, 0.08%)</title><rect x="904.4" y="149" width="0.7" height="15.0" fill="rgb(227,54,9)" rx="2" ry="2" />
+<text text-anchor="" x="907.37" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>send(django.dispatch.dispatcher) (13 samples, 0.16%)</title><rect x="50.9" y="181" width="1.5" height="15.0" fill="rgb(230,64,26)" rx="2" ry="2" />
+<text text-anchor="" x="53.85" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__enter__(django.db.utils) (10 samples, 0.13%)</title><rect x="322.1" y="149" width="1.2" height="15.0" fill="rgb(214,66,50)" rx="2" ry="2" />
+<text text-anchor="" x="325.11" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_select(django.db.models.sql.compiler) (1,002 samples, 12.54%)</title><rect x="179.3" y="133" width="122.9" height="15.0" fill="rgb(239,213,49)" rx="2" ry="2" />
+<text text-anchor="" x="182.30" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >get_select(djan..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>compile(django.db.models.sql.compiler) (264 samples, 3.30%)</title><rect x="125.0" y="165" width="32.3" height="15.0" fill="rgb(206,123,9)" rx="2" ry="2" />
+<text text-anchor="" x="127.95" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >co..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_cursor(django.db.backends.base.base) (152 samples, 1.90%)</title><rect x="320.1" y="165" width="18.7" height="15.0" fill="rgb(213,119,11)" rx="2" ry="2" />
+<text text-anchor="" x="323.15" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>value_from_object(django.db.models.fields) (23 samples, 0.29%)</title><rect x="713.6" y="101" width="2.8" height="15.0" fill="rgb(218,33,28)" rx="2" ry="2" />
+<text text-anchor="" x="716.59" y="111.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.models.query) (24 samples, 0.30%)</title><rect x="806.0" y="197" width="2.9" height="15.0" fill="rgb(245,39,29)" rx="2" ry="2" />
+<text text-anchor="" x="808.97" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>compiler(django.db.backends.base.operations) (8 samples, 0.10%)</title><rect x="731.0" y="181" width="1.0" height="15.0" fill="rgb(220,34,7)" rx="2" ry="2" />
+<text text-anchor="" x="734.01" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_add_q(django.db.models.sql.query) (879 samples, 11.00%)</title><rect x="835.1" y="197" width="107.8" height="15.0" fill="rgb(226,66,16)" rx="2" ry="2" />
+<text text-anchor="" x="838.05" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_add_q(django..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__iter__(django.db.models.query) (286 samples, 3.58%)</title><rect x="20.7" y="277" width="35.1" height="15.0" fill="rgb(211,28,16)" rx="2" ry="2" />
+<text text-anchor="" x="23.67" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >__..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_handle_fromlist(importlib._bootstrap) (35 samples, 0.44%)</title><rect x="709.3" y="101" width="4.3" height="15.0" fill="rgb(212,219,50)" rx="2" ry="2" />
+<text text-anchor="" x="712.30" y="111.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>as_sql(django.db.models.lookups) (202 samples, 2.53%)</title><rect x="132.6" y="117" width="24.7" height="15.0" fill="rgb(230,220,36)" rx="2" ry="2" />
+<text text-anchor="" x="135.56" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >a..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_contains_aggregate(django.db.models.sql.where) (68 samples, 0.85%)</title><rect x="306.4" y="101" width="8.3" height="15.0" fill="rgb(208,38,47)" rx="2" ry="2" />
+<text text-anchor="" x="309.40" y="111.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.backends.utils) (9 samples, 0.11%)</title><rect x="324.9" y="117" width="1.1" height="15.0" fill="rgb(254,70,43)" rx="2" ry="2" />
+<text text-anchor="" x="327.93" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>create_cursor(django.db.backends.postgresql.base) (79 samples, 0.99%)</title><rect x="328.6" y="149" width="9.7" height="15.0" fill="rgb(220,106,44)" rx="2" ry="2" />
+<text text-anchor="" x="331.61" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_queryset(django.db.models.manager) (1 samples, 0.01%)</title><rect x="55.8" y="261" width="0.1" height="15.0" fill="rgb(208,198,51)" rx="2" ry="2" />
+<text text-anchor="" x="58.76" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>compile(django.db.models.sql.compiler) (549 samples, 6.87%)</title><rect x="196.7" y="117" width="67.4" height="15.0" fill="rgb(234,203,54)" rx="2" ry="2" />
+<text text-anchor="" x="199.73" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >compile..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>prepare_lookup_value(django.db.models.sql.query) (51 samples, 0.64%)</title><rect x="911.0" y="165" width="6.2" height="15.0" fill="rgb(236,28,46)" rx="2" ry="2" />
+<text text-anchor="" x="913.99" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_meta(django.db.models.sql.query) (1 samples, 0.01%)</title><rect x="905.1" y="149" width="0.1" height="15.0" fill="rgb(209,107,2)" rx="2" ry="2" />
+<text text-anchor="" x="908.10" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>clone(django.db.models.sql.query) (172 samples, 2.15%)</title><rect x="808.9" y="197" width="21.1" height="15.0" fill="rgb(228,151,46)" rx="2" ry="2" />
+<text text-anchor="" x="811.92" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_db_converters(django.db.models.expressions) (176 samples, 2.20%)</title><rect x="771.5" y="165" width="21.6" height="15.0" fill="rgb(251,97,49)" rx="2" ry="2" />
+<text text-anchor="" x="774.50" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >g..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.models.base) (454 samples, 5.68%)</title><rect x="666.5" y="165" width="55.7" height="15.0" fill="rgb(217,224,47)" rx="2" ry="2" />
+<text text-anchor="" x="669.48" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >__ini..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_meta(django.db.models.sql.query) (4 samples, 0.05%)</title><rect x="910.5" y="165" width="0.5" height="15.0" fill="rgb(250,56,47)" rx="2" ry="2" />
+<text text-anchor="" x="913.50" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>execute(django.db.backends.utils) (2 samples, 0.03%)</title><rect x="21.5" y="181" width="0.3" height="15.0" fill="rgb(245,151,39)" rx="2" ry="2" />
+<text text-anchor="" x="24.53" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>cursor(django.db.backends.base.base) (162 samples, 2.03%)</title><rect x="318.9" y="181" width="19.9" height="15.0" fill="rgb(231,97,30)" rx="2" ry="2" />
+<text text-anchor="" x="321.92" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>execute(django.db.backends.utils) (2,281 samples, 28.56%)</title><rect x="362.7" y="149" width="279.9" height="15.0" fill="rgb(236,184,48)" rx="2" ry="2" />
+<text text-anchor="" x="365.72" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >execute(django.db.backends.utils)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__enter__(django.db.utils) (13 samples, 0.16%)</title><rect x="759.1" y="133" width="1.6" height="15.0" fill="rgb(246,99,31)" rx="2" ry="2" />
+<text text-anchor="" x="762.11" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>results_iter(django.db.models.sql.compiler) (489 samples, 6.12%)</title><rect x="733.1" y="197" width="60.0" height="15.0" fill="rgb(208,190,1)" rx="2" ry="2" />
+<text text-anchor="" x="736.10" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >result..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__iter__(django.db.models.query) (5,824 samples, 72.91%)</title><rect x="78.6" y="213" width="714.5" height="15.0" fill="rgb(216,91,54)" rx="2" ry="2" />
+<text text-anchor="" x="81.58" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >__iter__(django.db.models.query)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>demote_joins(django.db.models.sql.query) (5 samples, 0.06%)</title><rect x="943.7" y="197" width="0.7" height="15.0" fill="rgb(212,106,20)" rx="2" ry="2" />
+<text text-anchor="" x="946.75" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__getattr__(django.db.backends.utils) (1 samples, 0.01%)</title><rect x="52.7" y="181" width="0.1" height="15.0" fill="rgb(233,178,12)" rx="2" ry="2" />
+<text text-anchor="" x="55.69" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.models.sql.query) (63 samples, 0.79%)</title><rect x="982.3" y="229" width="7.7" height="15.0" fill="rgb(223,61,29)" rx="2" ry="2" />
+<text text-anchor="" x="985.27" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>trim_joins(django.db.models.sql.query) (22 samples, 0.28%)</title><rect x="932.8" y="165" width="2.7" height="15.0" fill="rgb(212,184,8)" rx="2" ry="2" />
+<text text-anchor="" x="935.83" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>last_executed_query(django.db.backends.postgresql.operations) (19 samples, 0.24%)</title><rect x="656.1" y="165" width="2.3" height="15.0" fill="rgb(250,227,44)" rx="2" ry="2" />
+<text text-anchor="" x="659.05" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_default_columns(django.db.models.sql.compiler) (307 samples, 3.84%)</title><rect x="264.6" y="117" width="37.6" height="15.0" fill="rgb(217,168,22)" rx="2" ry="2" />
+<text text-anchor="" x="267.57" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >get..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>manager_method(django.db.models.manager) (7,614 samples, 95.32%)</title><rect x="55.9" y="277" width="934.1" height="15.0" fill="rgb(254,218,7)" rx="2" ry="2" />
+<text text-anchor="" x="58.88" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >manager_method(django.db.models.manager)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_converters(django.db.models.sql.compiler) (240 samples, 3.00%)</title><rect x="763.6" y="181" width="29.5" height="15.0" fill="rgb(235,133,13)" rx="2" ry="2" />
+<text text-anchor="" x="766.65" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >ge..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>names_to_path(django.db.models.sql.query) (40 samples, 0.50%)</title><rect x="918.2" y="149" width="4.9" height="15.0" fill="rgb(214,224,40)" rx="2" ry="2" />
+<text text-anchor="" x="921.23" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__call__(django.db.utils) (18 samples, 0.23%)</title><rect x="749.0" y="133" width="2.3" height="15.0" fill="rgb(218,220,0)" rx="2" ry="2" />
+<text text-anchor="" x="752.05" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>add_q(django.db.models.sql.query) (932 samples, 11.67%)</title><rect x="830.0" y="213" width="114.4" height="15.0" fill="rgb(228,202,3)" rx="2" ry="2" />
+<text text-anchor="" x="833.02" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >add_q(django.d..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_get_pk_val(django.db.models.base) (3 samples, 0.04%)</title><rect x="15.0" y="261" width="0.4" height="15.0" fill="rgb(207,161,30)" rx="2" ry="2" />
+<text text-anchor="" x="18.03" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;lambda&gt;(django.db.models.sql.compiler) (21 samples, 0.26%)</title><rect x="52.7" y="197" width="2.6" height="15.0" fill="rgb(229,152,8)" rx="2" ry="2" />
+<text text-anchor="" x="55.69" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_filter_or_exclude(django.db.models.query) (1,220 samples, 15.27%)</title><rect x="795.5" y="229" width="149.7" height="15.0" fill="rgb(211,200,48)" rx="2" ry="2" />
+<text text-anchor="" x="798.55" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_filter_or_exclude(..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>can_filter(django.db.models.sql.query) (3 samples, 0.04%)</title><rect x="973.1" y="229" width="0.3" height="15.0" fill="rgb(225,1,4)" rx="2" ry="2" />
+<text text-anchor="" x="976.07" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__instancecheck__(abc) (33 samples, 0.41%)</title><rect x="857.1" y="149" width="4.1" height="15.0" fill="rgb(233,53,16)" rx="2" ry="2" />
+<text text-anchor="" x="860.13" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;genexpr&gt;(django.db.models.sql.query) (8 samples, 0.10%)</title><rect x="833.6" y="197" width="1.0" height="15.0" fill="rgb(241,133,40)" rx="2" ry="2" />
+<text text-anchor="" x="836.58" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get(weakref) (20 samples, 0.25%)</title><rect x="719.7" y="133" width="2.5" height="15.0" fill="rgb(251,18,49)" rx="2" ry="2" />
+<text text-anchor="" x="722.73" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>compile(re) (24 samples, 0.30%)</title><rect x="728.1" y="165" width="2.9" height="15.0" fill="rgb(213,226,37)" rx="2" ry="2" />
+<text text-anchor="" x="731.07" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>copy(copy) (11 samples, 0.14%)</title><rect x="828.7" y="181" width="1.3" height="15.0" fill="rgb(210,193,41)" rx="2" ry="2" />
+<text text-anchor="" x="831.67" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(collections) (51 samples, 0.64%)</title><rect x="845.2" y="165" width="6.3" height="15.0" fill="rgb(211,5,50)" rx="2" ry="2" />
+<text text-anchor="" x="848.23" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_clone(django.db.models.query) (219 samples, 2.74%)</title><rect x="803.2" y="213" width="26.8" height="15.0" fill="rgb(212,8,5)" rx="2" ry="2" />
+<text text-anchor="" x="806.15" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>record_sql(raven.contrib.django.client) (110 samples, 1.38%)</title><rect x="642.6" y="149" width="13.5" height="15.0" fill="rgb(205,132,54)" rx="2" ry="2" />
+<text text-anchor="" x="645.56" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_distinct(django.db.models.sql.compiler) (11 samples, 0.14%)</title><rect x="157.3" y="165" width="1.4" height="15.0" fill="rgb(254,13,39)" rx="2" ry="2" />
+<text text-anchor="" x="160.34" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.models.sql.query) (76 samples, 0.95%)</title><rect x="842.2" y="181" width="9.3" height="15.0" fill="rgb(205,122,27)" rx="2" ry="2" />
+<text text-anchor="" x="845.17" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>names_to_path(django.db.models.sql.query) (50 samples, 0.63%)</title><rect x="926.7" y="149" width="6.1" height="15.0" fill="rgb(218,94,14)" rx="2" ry="2" />
+<text text-anchor="" x="929.70" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>build_lookup(django.db.models.sql.query) (151 samples, 1.89%)</title><rect x="880.7" y="165" width="18.5" height="15.0" fill="rgb(206,196,47)" rx="2" ry="2" />
+<text text-anchor="" x="883.69" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_handle_fromlist(importlib._bootstrap) (6 samples, 0.08%)</title><rect x="46.8" y="133" width="0.7" height="15.0" fill="rgb(217,85,39)" rx="2" ry="2" />
+<text text-anchor="" x="49.81" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_dict(main.utils.models.mixins) (264 samples, 3.30%)</title><rect x="684.0" y="133" width="32.4" height="15.0" fill="rgb(236,142,40)" rx="2" ry="2" />
+<text text-anchor="" x="687.03" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_d..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>execute(raven.contrib.django.client) (2,419 samples, 30.28%)</title><rect x="359.3" y="165" width="296.8" height="15.0" fill="rgb(218,67,29)" rx="2" ry="2" />
+<text text-anchor="" x="362.28" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >execute(raven.contrib.django.client)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>can_filter(django.db.models.sql.query) (7 samples, 0.09%)</title><rect x="944.4" y="213" width="0.8" height="15.0" fill="rgb(254,28,35)" rx="2" ry="2" />
+<text text-anchor="" x="947.36" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>reset_queries(django.db) (2 samples, 0.03%)</title><rect x="15.4" y="261" width="0.2" height="15.0" fill="rgb(240,171,17)" rx="2" ry="2" />
+<text text-anchor="" x="18.40" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;listcomp&gt;(django.db.models.sql.compiler) (4 samples, 0.05%)</title><rect x="55.3" y="197" width="0.5" height="15.0" fill="rgb(230,103,5)" rx="2" ry="2" />
+<text text-anchor="" x="58.27" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>order_by(django.db.models.query) (237 samples, 2.97%)</title><rect x="945.2" y="245" width="29.1" height="15.0" fill="rgb(205,89,18)" rx="2" ry="2" />
+<text text-anchor="" x="948.22" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >or..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__iter__(django.db.models.query) (286 samples, 3.58%)</title><rect x="20.7" y="245" width="35.1" height="15.0" fill="rgb(207,95,7)" rx="2" ry="2" />
+<text text-anchor="" x="23.67" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >__..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_rhs_op(django.db.models.lookups) (7 samples, 0.09%)</title><rect x="133.9" y="101" width="0.9" height="15.0" fill="rgb(242,184,43)" rx="2" ry="2" />
+<text text-anchor="" x="136.91" y="111.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_new_instance(django.utils.tree) (8 samples, 0.10%)</title><rect x="970.0" y="181" width="1.0" height="15.0" fill="rgb(240,23,25)" rx="2" ry="2" />
+<text text-anchor="" x="973.00" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__getattr__(django.db.backends.utils) (54 samples, 0.68%)</title><rect x="744.6" y="149" width="6.7" height="15.0" fill="rgb(211,7,12)" rx="2" ry="2" />
+<text text-anchor="" x="747.63" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>copy(copy) (9 samples, 0.11%)</title><rect x="971.0" y="197" width="1.1" height="15.0" fill="rgb(224,103,36)" rx="2" ry="2" />
+<text text-anchor="" x="973.98" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__instancecheck__(abc) (54 samples, 0.68%)</title><rect x="871.9" y="165" width="6.6" height="15.0" fill="rgb(245,20,2)" rx="2" ry="2" />
+<text text-anchor="" x="874.86" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get(django.db.models.query) (7,400 samples, 92.64%)</title><rect x="66.4" y="261" width="907.9" height="15.0" fill="rgb(211,109,38)" rx="2" ry="2" />
+<text text-anchor="" x="69.43" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >get(django.db.models.query)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_lookup(django.db.models.expressions) (63 samples, 0.79%)</title><rect x="891.5" y="149" width="7.7" height="15.0" fill="rgb(227,105,16)" rx="2" ry="2" />
+<text text-anchor="" x="894.48" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_related_populators(django.db.models.query) (9 samples, 0.11%)</title><rect x="732.0" y="197" width="1.1" height="15.0" fill="rgb(229,78,13)" rx="2" ry="2" />
+<text text-anchor="" x="735.00" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;listcomp&gt;(__main__) (5 samples, 0.06%)</title><rect x="14.8" y="277" width="0.6" height="15.0" fill="rgb(239,111,13)" rx="2" ry="2" />
+<text text-anchor="" x="17.78" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>clone(django.db.models.sql.where) (39 samples, 0.49%)</title><rect x="823.9" y="181" width="4.8" height="15.0" fill="rgb(233,109,17)" rx="2" ry="2" />
+<text text-anchor="" x="826.89" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.models.query) (107 samples, 1.34%)</title><rect x="976.9" y="245" width="13.1" height="15.0" fill="rgb(242,30,51)" rx="2" ry="2" />
+<text text-anchor="" x="979.87" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>contains_aggregate(django.db.models.sql.where) (84 samples, 1.05%)</title><rect x="304.4" y="117" width="10.3" height="15.0" fill="rgb(253,3,51)" rx="2" ry="2" />
+<text text-anchor="" x="307.44" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_fetch_all(django.db.models.query) (5,883 samples, 73.65%)</title><rect x="71.3" y="229" width="721.8" height="15.0" fill="rgb(212,199,12)" rx="2" ry="2" />
+<text text-anchor="" x="74.34" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_fetch_all(django.db.models.query)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>split_having(django.db.models.sql.where) (102 samples, 1.28%)</title><rect x="302.2" y="149" width="12.5" height="15.0" fill="rgb(225,94,33)" rx="2" ry="2" />
+<text text-anchor="" x="305.23" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>add(django.utils.tree) (18 samples, 0.23%)</title><rect x="878.5" y="165" width="2.2" height="15.0" fill="rgb(244,226,20)" rx="2" ry="2" />
+<text text-anchor="" x="881.48" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>record(raven.breadcrumbs) (41 samples, 0.51%)</title><rect x="651.0" y="117" width="5.1" height="15.0" fill="rgb(239,121,0)" rx="2" ry="2" />
+<text text-anchor="" x="654.02" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__get__(django.utils.functional) (31 samples, 0.39%)</title><rect x="310.9" y="53" width="3.8" height="15.0" fill="rgb(246,196,16)" rx="2" ry="2" />
+<text text-anchor="" x="313.94" y="63.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>annotation_select(django.db.models.sql.query) (9 samples, 0.11%)</title><rect x="195.6" y="117" width="1.1" height="15.0" fill="rgb(233,50,44)" rx="2" ry="2" />
+<text text-anchor="" x="198.62" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>swapped(django.db.models.options) (12 samples, 0.15%)</title><rect x="19.2" y="261" width="1.5" height="15.0" fill="rgb(211,58,35)" rx="2" ry="2" />
+<text text-anchor="" x="22.20" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__contains__(_weakrefset) (24 samples, 0.30%)</title><rect x="875.5" y="149" width="3.0" height="15.0" fill="rgb(213,35,48)" rx="2" ry="2" />
+<text text-anchor="" x="878.54" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>compile(django.db.models.sql.compiler) (20 samples, 0.25%)</title><rect x="149.2" y="69" width="2.5" height="15.0" fill="rgb(231,9,49)" rx="2" ry="2" />
+<text text-anchor="" x="152.25" y="79.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_record_log_breadcrumb(raven.breadcrumbs) (25 samples, 0.31%)</title><rect x="351.7" y="149" width="3.0" height="15.0" fill="rgb(225,141,23)" rx="2" ry="2" />
+<text text-anchor="" x="354.68" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>db(django.db.models.query) (96 samples, 1.20%)</title><rect x="95.0" y="197" width="11.8" height="15.0" fill="rgb(237,173,37)" rx="2" ry="2" />
+<text text-anchor="" x="98.02" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.utils.datastructures) (38 samples, 0.48%)</title><rect x="142.0" y="69" width="4.7" height="15.0" fill="rgb(211,165,43)" rx="2" ry="2" />
+<text text-anchor="" x="145.01" y="79.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>model_to_dict(django.forms.models) (148 samples, 1.85%)</title><rect x="32.7" y="149" width="18.2" height="15.0" fill="rgb(248,148,6)" rx="2" ry="2" />
+<text text-anchor="" x="35.70" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>process_rhs(django.db.models.lookups) (46 samples, 0.58%)</title><rect x="151.7" y="101" width="5.6" height="15.0" fill="rgb(233,208,25)" rx="2" ry="2" />
+<text text-anchor="" x="154.70" y="111.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>inner(django.db.utils) (81 samples, 1.01%)</title><rect x="751.3" y="149" width="9.9" height="15.0" fill="rgb(226,167,54)" rx="2" ry="2" />
+<text text-anchor="" x="754.26" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.utils.tree) (8 samples, 0.10%)</title><rect x="851.5" y="181" width="1.0" height="15.0" fill="rgb(230,31,18)" rx="2" ry="2" />
+<text text-anchor="" x="854.49" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>lookup_cast(django.db.backends.postgresql.operations) (15 samples, 0.19%)</title><rect x="147.0" y="85" width="1.9" height="15.0" fill="rgb(241,84,54)" rx="2" ry="2" />
+<text text-anchor="" x="150.04" y="95.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>update_join_types(django.db.models.sql.query) (60 samples, 0.75%)</title><rect x="935.5" y="181" width="7.4" height="15.0" fill="rgb(211,53,30)" rx="2" ry="2" />
+<text text-anchor="" x="938.53" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>decode(encodings.utf_8) (2,155 samples, 26.98%)</title><rect x="378.1" y="133" width="264.3" height="15.0" fill="rgb(220,136,10)" rx="2" ry="2" />
+<text text-anchor="" x="381.05" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >decode(encodings.utf_8)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>record(raven.breadcrumbs) (95 samples, 1.19%)</title><rect x="644.4" y="133" width="11.7" height="15.0" fill="rgb(229,169,0)" rx="2" ry="2" />
+<text text-anchor="" x="647.40" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>from_db(django.db.models.base) (520 samples, 6.51%)</title><rect x="658.4" y="197" width="63.8" height="15.0" fill="rgb(206,156,47)" rx="2" ry="2" />
+<text text-anchor="" x="661.39" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >from_db..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>execute(django.db.backends.utils) (2 samples, 0.03%)</title><rect x="21.5" y="213" width="0.3" height="15.0" fill="rgb(236,122,3)" rx="2" ry="2" />
+<text text-anchor="" x="24.53" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>process_lhs(django.db.models.lookups) (138 samples, 1.73%)</title><rect x="134.8" y="101" width="16.9" height="15.0" fill="rgb(232,37,19)" rx="2" ry="2" />
+<text text-anchor="" x="137.77" y="111.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.models.query) (10 samples, 0.13%)</title><rect x="77.4" y="213" width="1.2" height="15.0" fill="rgb(206,211,49)" rx="2" ry="2" />
+<text text-anchor="" x="80.35" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.models.sql.compiler) (51 samples, 0.64%)</title><rect x="724.8" y="181" width="6.2" height="15.0" fill="rgb(215,54,30)" rx="2" ry="2" />
+<text text-anchor="" x="727.76" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_fetch_all(django.db.models.query) (286 samples, 3.58%)</title><rect x="20.7" y="261" width="35.1" height="15.0" fill="rgb(229,215,48)" rx="2" ry="2" />
+<text text-anchor="" x="23.67" y="271.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_f..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>debug(logging) (90 samples, 1.13%)</title><rect x="348.2" y="165" width="11.1" height="15.0" fill="rgb(242,81,44)" rx="2" ry="2" />
+<text text-anchor="" x="351.24" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;lambda&gt;(django.db.models.sql.compiler) (148 samples, 1.85%)</title><rect x="743.0" y="165" width="18.2" height="15.0" fill="rgb(234,190,31)" rx="2" ry="2" />
+<text text-anchor="" x="746.04" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_internal_type(django.db.models.fields) (2 samples, 0.03%)</title><rect x="146.8" y="85" width="0.2" height="15.0" fill="rgb(245,196,38)" rx="2" ry="2" />
+<text text-anchor="" x="149.79" y="95.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>update(collections) (10 samples, 0.13%)</title><rect x="850.3" y="149" width="1.2" height="15.0" fill="rgb(213,185,13)" rx="2" ry="2" />
+<text text-anchor="" x="853.26" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>quote_name_unless_alias(django.db.models.sql.compiler) (263 samples, 3.29%)</title><rect x="230.6" y="85" width="32.3" height="15.0" fill="rgb(231,133,53)" rx="2" ry="2" />
+<text text-anchor="" x="233.59" y="95.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >qu..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>reset_refcounts(django.db.models.sql.query) (34 samples, 0.43%)</title><rect x="314.7" y="165" width="4.2" height="15.0" fill="rgb(248,176,28)" rx="2" ry="2" />
+<text text-anchor="" x="317.75" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__new__(namedtuple_Column) (61 samples, 0.76%)</title><rect x="370.6" y="133" width="7.5" height="15.0" fill="rgb(214,27,17)" rx="2" ry="2" />
+<text text-anchor="" x="373.57" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_handle_fromlist(importlib._bootstrap) (30 samples, 0.38%)</title><rect x="895.5" y="117" width="3.7" height="15.0" fill="rgb(247,31,39)" rx="2" ry="2" />
+<text text-anchor="" x="898.53" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.models.query_utils) (36 samples, 0.45%)</title><rect x="798.7" y="213" width="4.5" height="15.0" fill="rgb(206,61,26)" rx="2" ry="2" />
+<text text-anchor="" x="801.74" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__exit__(django.db.utils) (4 samples, 0.05%)</title><rect x="370.1" y="133" width="0.5" height="15.0" fill="rgb(207,190,14)" rx="2" ry="2" />
+<text text-anchor="" x="373.08" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_internal_type(django.db.models.fields) (1 samples, 0.01%)</title><rect x="146.7" y="69" width="0.1" height="15.0" fill="rgb(224,158,40)" rx="2" ry="2" />
+<text text-anchor="" x="149.67" y="79.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>execute_sql(django.db.models.sql.compiler) (4,496 samples, 56.28%)</title><rect x="106.8" y="197" width="551.6" height="15.0" fill="rgb(218,58,43)" rx="2" ry="2" />
+<text text-anchor="" x="109.80" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >execute_sql(django.db.models.sql.compiler)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_from_clause(django.db.models.sql.compiler) (43 samples, 0.54%)</title><rect x="158.7" y="165" width="5.3" height="15.0" fill="rgb(213,64,9)" rx="2" ry="2" />
+<text text-anchor="" x="161.69" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>debug(logging) (37 samples, 0.46%)</title><rect x="354.7" y="149" width="4.6" height="15.0" fill="rgb(206,63,47)" rx="2" ry="2" />
+<text text-anchor="" x="357.74" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>solve_lookup_type(django.db.models.sql.query) (79 samples, 0.99%)</title><rect x="923.1" y="165" width="9.7" height="15.0" fill="rgb(253,9,37)" rx="2" ry="2" />
+<text text-anchor="" x="926.14" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get(weakref) (3 samples, 0.04%)</title><rect x="52.1" y="165" width="0.3" height="15.0" fill="rgb(233,58,16)" rx="2" ry="2" />
+<text text-anchor="" x="55.08" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__get__(django.db.models.manager) (41 samples, 0.51%)</title><rect x="15.6" y="277" width="5.1" height="15.0" fill="rgb(223,27,20)" rx="2" ry="2" />
+<text text-anchor="" x="18.64" y="287.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>ensure_connection(django.db.backends.base.base) (4 samples, 0.05%)</title><rect x="338.3" y="149" width="0.5" height="15.0" fill="rgb(246,54,54)" rx="2" ry="2" />
+<text text-anchor="" x="341.30" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>as_sql(django.db.models.sql.datastructures) (7 samples, 0.09%)</title><rect x="163.1" y="133" width="0.9" height="15.0" fill="rgb(212,224,2)" rx="2" ry="2" />
+<text text-anchor="" x="166.11" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__new__(namedtuple_Column) (1 samples, 0.01%)</title><rect x="21.5" y="165" width="0.2" height="15.0" fill="rgb(235,215,18)" rx="2" ry="2" />
+<text text-anchor="" x="24.53" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_get_lookup(django.db.models.query_utils) (17 samples, 0.21%)</title><rect x="893.4" y="117" width="2.1" height="15.0" fill="rgb(228,1,43)" rx="2" ry="2" />
+<text text-anchor="" x="896.45" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>validate_thread_sharing(django.db.backends.base.base) (16 samples, 0.20%)</title><rect x="326.6" y="133" width="2.0" height="15.0" fill="rgb(243,17,13)" rx="2" ry="2" />
+<text text-anchor="" x="329.65" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;listcomp&gt;(django.db.models.sql.compiler) (8 samples, 0.10%)</title><rect x="761.2" y="165" width="1.0" height="15.0" fill="rgb(218,41,34)" rx="2" ry="2" />
+<text text-anchor="" x="764.19" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>table_alias(django.db.models.sql.query) (16 samples, 0.20%)</title><rect x="908.5" y="133" width="2.0" height="15.0" fill="rgb(223,54,3)" rx="2" ry="2" />
+<text text-anchor="" x="911.54" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;genexpr&gt;(django.db.models.sql.compiler) (3 samples, 0.04%)</title><rect x="178.9" y="133" width="0.4" height="15.0" fill="rgb(227,16,17)" rx="2" ry="2" />
+<text text-anchor="" x="181.94" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>execute_sql(django.db.models.sql.compiler) (2 samples, 0.03%)</title><rect x="21.5" y="229" width="0.3" height="15.0" fill="rgb(219,229,44)" rx="2" ry="2" />
+<text text-anchor="" x="24.53" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_dict(main.utils.models.mixins) (168 samples, 2.10%)</title><rect x="30.2" y="165" width="20.7" height="15.0" fill="rgb(247,208,29)" rx="2" ry="2" />
+<text text-anchor="" x="33.24" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_meta(django.db.models.sql.query) (4 samples, 0.05%)</title><rect x="299.5" y="101" width="0.5" height="15.0" fill="rgb(244,25,31)" rx="2" ry="2" />
+<text text-anchor="" x="302.53" y="111.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>db_for_read(main.database) (58 samples, 0.73%)</title><rect x="99.7" y="165" width="7.1" height="15.0" fill="rgb(216,16,46)" rx="2" ry="2" />
+<text text-anchor="" x="102.68" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_extra_select(django.db.models.sql.compiler) (18 samples, 0.23%)</title><rect x="168.9" y="149" width="2.2" height="15.0" fill="rgb(242,55,41)" rx="2" ry="2" />
+<text text-anchor="" x="171.88" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;listcomp&gt;(django.db.models.sql.compiler) (12 samples, 0.15%)</title><rect x="169.6" y="133" width="1.5" height="15.0" fill="rgb(236,207,22)" rx="2" ry="2" />
+<text text-anchor="" x="172.61" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.models.base) (1 samples, 0.01%)</title><rect x="28.9" y="181" width="0.1" height="15.0" fill="rgb(237,26,29)" rx="2" ry="2" />
+<text text-anchor="" x="31.89" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.utils.tree) (5 samples, 0.06%)</title><rect x="802.5" y="197" width="0.7" height="15.0" fill="rgb(214,21,38)" rx="2" ry="2" />
+<text text-anchor="" x="805.54" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>quote_name(django.db.backends.postgresql.operations) (84 samples, 1.05%)</title><rect x="252.5" y="69" width="10.4" height="15.0" fill="rgb(231,137,19)" rx="2" ry="2" />
+<text text-anchor="" x="255.55" y="79.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__getitem__(django.db.utils) (20 samples, 0.25%)</title><rect x="914.8" y="149" width="2.4" height="15.0" fill="rgb(233,124,1)" rx="2" ry="2" />
+<text text-anchor="" x="917.79" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>process_lhs(django.db.models.lookups) (23 samples, 0.29%)</title><rect x="148.9" y="85" width="2.8" height="15.0" fill="rgb(234,25,32)" rx="2" ry="2" />
+<text text-anchor="" x="151.88" y="95.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>value_from_object(django.db.models.fields) (27 samples, 0.34%)</title><rect x="47.5" y="133" width="3.4" height="15.0" fill="rgb(246,17,23)" rx="2" ry="2" />
+<text text-anchor="" x="50.54" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>model_to_dict(django.forms.models) (229 samples, 2.87%)</title><rect x="688.3" y="117" width="28.1" height="15.0" fill="rgb(216,166,14)" rx="2" ry="2" />
+<text text-anchor="" x="691.32" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >m..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>handler(raven.breadcrumbs) (1 samples, 0.01%)</title><rect x="354.6" y="133" width="0.1" height="15.0" fill="rgb(214,116,27)" rx="2" ry="2" />
+<text text-anchor="" x="357.62" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>deferred_to_columns(django.db.models.sql.compiler) (19 samples, 0.24%)</title><rect x="279.8" y="101" width="2.3" height="15.0" fill="rgb(251,224,52)" rx="2" ry="2" />
+<text text-anchor="" x="282.78" y="111.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.models.query) (22 samples, 0.28%)</title><rect x="950.9" y="213" width="2.7" height="15.0" fill="rgb(232,19,47)" rx="2" ry="2" />
+<text text-anchor="" x="953.86" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>add_ordering(django.db.models.sql.query) (8 samples, 0.10%)</title><rect x="972.1" y="229" width="1.0" height="15.0" fill="rgb(243,53,33)" rx="2" ry="2" />
+<text text-anchor="" x="975.09" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>join_parent_model(django.db.models.sql.query) (18 samples, 0.23%)</title><rect x="300.0" y="101" width="2.2" height="15.0" fill="rgb(213,97,38)" rx="2" ry="2" />
+<text text-anchor="" x="303.03" y="111.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>setup_query(django.db.models.sql.compiler) (1,037 samples, 12.98%)</title><rect x="175.0" y="149" width="127.2" height="15.0" fill="rgb(252,25,37)" rx="2" ry="2" />
+<text text-anchor="" x="178.01" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >setup_query(dja..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__get__(django.utils.functional) (99 samples, 1.24%)</title><rect x="302.6" y="133" width="12.1" height="15.0" fill="rgb(207,168,36)" rx="2" ry="2" />
+<text text-anchor="" x="305.60" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>queries_logged(django.db.backends.base.base) (5 samples, 0.06%)</title><rect x="326.0" y="133" width="0.6" height="15.0" fill="rgb(240,49,45)" rx="2" ry="2" />
+<text text-anchor="" x="329.03" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.utils.tree) (3 samples, 0.04%)</title><rect x="970.6" y="165" width="0.4" height="15.0" fill="rgb(217,52,17)" rx="2" ry="2" />
+<text text-anchor="" x="973.62" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>as_sql(django.db.models.expressions) (356 samples, 4.46%)</title><rect x="219.2" y="101" width="43.7" height="15.0" fill="rgb(212,41,10)" rx="2" ry="2" />
+<text text-anchor="" x="222.18" y="111.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >as_s..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>setup_joins(django.db.models.sql.query) (48 samples, 0.60%)</title><rect x="917.2" y="165" width="5.9" height="15.0" fill="rgb(226,123,31)" rx="2" ry="2" />
+<text text-anchor="" x="920.25" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.contrib.auth.base_user) (495 samples, 6.20%)</title><rect x="661.5" y="181" width="60.7" height="15.0" fill="rgb(217,228,42)" rx="2" ry="2" />
+<text text-anchor="" x="664.45" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >__init..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>decode(encodings.utf_8) (1 samples, 0.01%)</title><rect x="21.7" y="165" width="0.1" height="15.0" fill="rgb(223,198,25)" rx="2" ry="2" />
+<text text-anchor="" x="24.65" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_lookup(django.db.models.query_utils) (59 samples, 0.74%)</title><rect x="892.0" y="133" width="7.2" height="15.0" fill="rgb(216,80,3)" rx="2" ry="2" />
+<text text-anchor="" x="894.98" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.models.query) (1 samples, 0.01%)</title><rect x="55.8" y="245" width="0.1" height="15.0" fill="rgb(237,224,13)" rx="2" ry="2" />
+<text text-anchor="" x="58.76" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;listcomp&gt;(django.db.models.sql.compiler) (8 samples, 0.10%)</title><rect x="739.1" y="181" width="1.0" height="15.0" fill="rgb(222,142,30)" rx="2" ry="2" />
+<text text-anchor="" x="742.11" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>db_type(django.db.models.fields) (58 samples, 0.73%)</title><rect x="139.7" y="85" width="7.1" height="15.0" fill="rgb(218,69,18)" rx="2" ry="2" />
+<text text-anchor="" x="142.68" y="95.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>can_filter(django.db.models.sql.query) (2 samples, 0.03%)</title><rect x="793.1" y="245" width="0.2" height="15.0" fill="rgb(225,64,4)" rx="2" ry="2" />
+<text text-anchor="" x="796.09" y="255.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__bool__(django.utils.tree) (4 samples, 0.05%)</title><rect x="834.6" y="197" width="0.5" height="15.0" fill="rgb(213,95,1)" rx="2" ry="2" />
+<text text-anchor="" x="837.56" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>quote_name_unless_alias(django.db.models.sql.compiler) (1 samples, 0.01%)</title><rect x="163.8" y="117" width="0.2" height="15.0" fill="rgb(240,158,41)" rx="2" ry="2" />
+<text text-anchor="" x="166.85" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.models.lookups) (76 samples, 0.95%)</title><rect x="882.2" y="149" width="9.3" height="15.0" fill="rgb(254,113,5)" rx="2" ry="2" />
+<text text-anchor="" x="885.16" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>clone(django.db.models.sql.where) (27 samples, 0.34%)</title><rect x="967.7" y="197" width="3.3" height="15.0" fill="rgb(212,176,51)" rx="2" ry="2" />
+<text text-anchor="" x="970.67" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_db_converters(django.db.backends.base.operations) (7 samples, 0.09%)</title><rect x="770.6" y="165" width="0.9" height="15.0" fill="rgb(226,226,16)" rx="2" ry="2" />
+<text text-anchor="" x="773.64" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_field(django.db.models.options) (1 samples, 0.01%)</title><rect x="923.0" y="133" width="0.1" height="15.0" fill="rgb(253,197,6)" rx="2" ry="2" />
+<text text-anchor="" x="926.01" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_contains_aggregate(django.db.models.sql.where) (50 samples, 0.63%)</title><rect x="308.6" y="69" width="6.1" height="15.0" fill="rgb(207,68,15)" rx="2" ry="2" />
+<text text-anchor="" x="311.61" y="79.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_prep_value(django.db.models.fields) (30 samples, 0.38%)</title><rect x="887.8" y="117" width="3.7" height="15.0" fill="rgb(209,93,31)" rx="2" ry="2" />
+<text text-anchor="" x="890.80" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>join(django.db.models.sql.query) (43 samples, 0.54%)</title><rect x="905.2" y="149" width="5.3" height="15.0" fill="rgb(251,91,18)" rx="2" ry="2" />
+<text text-anchor="" x="908.23" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>all (7,988 samples, 100%)</title><rect x="10.0" y="293" width="980.0" height="15.0" fill="rgb(209,119,15)" rx="2" ry="2" />
+<text text-anchor="" x="13.00" y="303.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>results_iter(django.db.models.sql.compiler) (27 samples, 0.34%)</title><rect x="52.4" y="229" width="3.4" height="15.0" fill="rgb(224,157,5)" rx="2" ry="2" />
+<text text-anchor="" x="55.45" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>compile(django.db.models.sql.compiler) (222 samples, 2.78%)</title><rect x="130.1" y="133" width="27.2" height="15.0" fill="rgb(219,174,16)" rx="2" ry="2" />
+<text text-anchor="" x="133.11" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >c..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_order_by(django.db.models.sql.compiler) (29 samples, 0.36%)</title><rect x="171.5" y="149" width="3.5" height="15.0" fill="rgb(236,45,29)" rx="2" ry="2" />
+<text text-anchor="" x="174.45" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_col(django.db.models.fields) (127 samples, 1.59%)</title><rect x="282.1" y="101" width="15.6" height="15.0" fill="rgb(223,198,17)" rx="2" ry="2" />
+<text text-anchor="" x="285.11" y="111.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_meta(django.db.models.sql.query) (1 samples, 0.01%)</title><rect x="158.6" y="149" width="0.1" height="15.0" fill="rgb(229,82,5)" rx="2" ry="2" />
+<text text-anchor="" x="161.57" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_field(django.db.models.options) (7 samples, 0.09%)</title><rect x="932.0" y="133" width="0.8" height="15.0" fill="rgb(234,106,38)" rx="2" ry="2" />
+<text text-anchor="" x="934.97" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.models.sql.query) (1 samples, 0.01%)</title><rect x="55.8" y="229" width="0.1" height="15.0" fill="rgb(212,28,28)" rx="2" ry="2" />
+<text text-anchor="" x="58.76" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>inner(django.db.utils) (20 samples, 0.25%)</title><rect x="52.8" y="181" width="2.5" height="15.0" fill="rgb(244,193,11)" rx="2" ry="2" />
+<text text-anchor="" x="55.82" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>demote_joins(django.db.models.sql.query) (18 samples, 0.23%)</title><rect x="939.6" y="165" width="2.2" height="15.0" fill="rgb(226,138,49)" rx="2" ry="2" />
+<text text-anchor="" x="942.58" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>&lt;listcomp&gt;(main.utils.models.mixins) (10 samples, 0.13%)</title><rect x="31.5" y="149" width="1.2" height="15.0" fill="rgb(240,29,14)" rx="2" ry="2" />
+<text text-anchor="" x="34.47" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_db_converters(django.db.models.fields) (70 samples, 0.88%)</title><rect x="784.5" y="149" width="8.6" height="15.0" fill="rgb(236,123,40)" rx="2" ry="2" />
+<text text-anchor="" x="787.50" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__exit__(django.db.utils) (4 samples, 0.05%)</title><rect x="760.7" y="133" width="0.5" height="15.0" fill="rgb(219,157,46)" rx="2" ry="2" />
+<text text-anchor="" x="763.70" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>as_sql(django.db.models.sql.compiler) (1,688 samples, 21.13%)</title><rect x="111.8" y="181" width="207.1" height="15.0" fill="rgb(241,148,44)" rx="2" ry="2" />
+<text text-anchor="" x="114.83" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >as_sql(django.db.models.sql..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_initial_alias(django.db.models.sql.query) (65 samples, 0.81%)</title><rect x="902.5" y="165" width="8.0" height="15.0" fill="rgb(223,176,20)" rx="2" ry="2" />
+<text text-anchor="" x="905.53" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>update(collections) (56 samples, 0.70%)</title><rect x="854.3" y="165" width="6.9" height="15.0" fill="rgb(231,59,25)" rx="2" ry="2" />
+<text text-anchor="" x="857.31" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_prepare_cursor(django.db.backends.base.base) (43 samples, 0.54%)</title><rect x="323.3" y="149" width="5.3" height="15.0" fill="rgb(210,111,38)" rx="2" ry="2" />
+<text text-anchor="" x="326.34" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>add(django.utils.tree) (7 samples, 0.09%)</title><rect x="942.9" y="197" width="0.8" height="15.0" fill="rgb(242,199,4)" rx="2" ry="2" />
+<text text-anchor="" x="945.89" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_col(django.db.models.fields) (22 samples, 0.28%)</title><rect x="899.8" y="165" width="2.7" height="15.0" fill="rgb(247,14,50)" rx="2" ry="2" />
+<text text-anchor="" x="902.83" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>from_db(django.db.models.base) (250 samples, 3.13%)</title><rect x="21.8" y="229" width="30.6" height="15.0" fill="rgb(216,34,33)" rx="2" ry="2" />
+<text text-anchor="" x="24.78" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >fr..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>make_debug_cursor(django.db.backends.base.base) (13 samples, 0.16%)</title><rect x="324.4" y="133" width="1.6" height="15.0" fill="rgb(211,38,44)" rx="2" ry="2" />
+<text text-anchor="" x="327.44" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>cursor_iter(django.db.models.sql.compiler) (192 samples, 2.40%)</title><rect x="740.1" y="181" width="23.5" height="15.0" fill="rgb(243,198,18)" rx="2" ry="2" />
+<text text-anchor="" x="743.09" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >c..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_route_db(django.db.utils) (77 samples, 0.96%)</title><rect x="97.4" y="181" width="9.4" height="15.0" fill="rgb(254,49,33)" rx="2" ry="2" />
+<text text-anchor="" x="100.35" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>check_related_objects(django.db.models.sql.query) (5 samples, 0.06%)</title><rect x="899.2" y="165" width="0.6" height="15.0" fill="rgb(208,75,7)" rx="2" ry="2" />
+<text text-anchor="" x="902.21" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>which_db(main.database) (51 samples, 0.64%)</title><rect x="100.5" y="149" width="6.3" height="15.0" fill="rgb(241,89,16)" rx="2" ry="2" />
+<text text-anchor="" x="103.54" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>select_format(django.db.models.fields) (10 samples, 0.13%)</title><rect x="262.9" y="101" width="1.2" height="15.0" fill="rgb(254,49,15)" rx="2" ry="2" />
+<text text-anchor="" x="265.85" y="111.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_prep_lookup(django.db.models.lookups) (53 samples, 0.66%)</title><rect x="885.0" y="133" width="6.5" height="15.0" fill="rgb(225,29,8)" rx="2" ry="2" />
+<text text-anchor="" x="887.98" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>add_votes(django.db.models.sql.query) (63 samples, 0.79%)</title><rect x="853.5" y="181" width="7.7" height="15.0" fill="rgb(210,193,47)" rx="2" ry="2" />
+<text text-anchor="" x="856.45" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>getEffectiveLevel(logging) (16 samples, 0.20%)</title><rect x="357.3" y="117" width="2.0" height="15.0" fill="rgb(205,34,17)" rx="2" ry="2" />
+<text text-anchor="" x="360.32" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__bool__(django.utils.tree) (13 samples, 0.16%)</title><rect x="840.6" y="181" width="1.6" height="15.0" fill="rgb(210,118,49)" rx="2" ry="2" />
+<text text-anchor="" x="843.57" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>clear_ordering(django.db.models.sql.query) (7 samples, 0.09%)</title><rect x="973.4" y="229" width="0.9" height="15.0" fill="rgb(253,83,32)" rx="2" ry="2" />
+<text text-anchor="" x="976.44" y="239.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>compile(django.db.models.sql.compiler) (23 samples, 0.29%)</title><rect x="161.1" y="149" width="2.9" height="15.0" fill="rgb(205,43,36)" rx="2" ry="2" />
+<text text-anchor="" x="164.15" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>isEnabledFor(logging) (26 samples, 0.33%)</title><rect x="356.1" y="133" width="3.2" height="15.0" fill="rgb(230,217,27)" rx="2" ry="2" />
+<text text-anchor="" x="359.09" y="143.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(main.utils.models.mixins) (178 samples, 2.23%)</title><rect x="29.0" y="181" width="21.9" height="15.0" fill="rgb(215,193,19)" rx="2" ry="2" />
+<text text-anchor="" x="32.02" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >_..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>clone(django.db.models.sql.query) (151 samples, 1.89%)</title><rect x="953.6" y="213" width="18.5" height="15.0" fill="rgb(219,10,6)" rx="2" ry="2" />
+<text text-anchor="" x="956.56" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>add(django.utils.tree) (8 samples, 0.10%)</title><rect x="852.5" y="181" width="1.0" height="15.0" fill="rgb(238,24,2)" rx="2" ry="2" />
+<text text-anchor="" x="855.47" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>ref_alias(django.db.models.sql.query) (5 samples, 0.06%)</title><rect x="298.9" y="85" width="0.6" height="15.0" fill="rgb(239,38,47)" rx="2" ry="2" />
+<text text-anchor="" x="301.92" y="95.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>pre_sql_setup(django.db.models.sql.compiler) (1,229 samples, 15.39%)</title><rect x="164.0" y="165" width="150.7" height="15.0" fill="rgb(225,114,45)" rx="2" ry="2" />
+<text text-anchor="" x="166.97" y="175.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >pre_sql_setup(djang..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__eq__(django.db.models.fields) (57 samples, 0.71%)</title><rect x="777.5" y="149" width="7.0" height="15.0" fill="rgb(210,28,14)" rx="2" ry="2" />
+<text text-anchor="" x="780.51" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>execute(django.db.backends.utils) (2,605 samples, 32.61%)</title><rect x="338.8" y="181" width="319.6" height="15.0" fill="rgb(252,199,8)" rx="2" ry="2" />
+<text text-anchor="" x="341.79" y="191.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >execute(django.db.backends.utils)</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>_compile(re) (16 samples, 0.20%)</title><rect x="729.1" y="149" width="1.9" height="15.0" fill="rgb(218,88,39)" rx="2" ry="2" />
+<text text-anchor="" x="732.05" y="159.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_active_contexts(raven.context) (26 samples, 0.33%)</title><rect x="647.8" y="117" width="3.2" height="15.0" fill="rgb(220,205,24)" rx="2" ry="2" />
+<text text-anchor="" x="650.83" y="127.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_db_prep_lookup(django.db.models.lookups) (27 samples, 0.34%)</title><rect x="154.0" y="85" width="3.3" height="15.0" fill="rgb(230,43,16)" rx="2" ry="2" />
+<text text-anchor="" x="157.03" y="95.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>get_compiler(django.db.models.sql.query) (80 samples, 1.00%)</title><rect x="722.2" y="197" width="9.8" height="15.0" fill="rgb(248,61,31)" rx="2" ry="2" />
+<text text-anchor="" x="725.18" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  ></text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.db.models.base) (237 samples, 2.97%)</title><rect x="23.4" y="197" width="29.0" height="15.0" fill="rgb(239,95,50)" rx="2" ry="2" />
+<text text-anchor="" x="26.37" y="207.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >__..</text>
+</g>
+<g class="func_g" onmouseover="s(this)" onmouseout="c()" onclick="zoom(this)">
+<title>__init__(django.contrib.auth.base_user) (243 samples, 3.04%)</title><rect x="22.6" y="213" width="29.8" height="15.0" fill="rgb(243,83,1)" rx="2" ry="2" />
+<text text-anchor="" x="25.64" y="223.5" font-size="12" font-family="Verdana" fill="rgb(0,0,0)"  >__..</text>
+</g>
+</svg>

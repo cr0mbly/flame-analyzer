@@ -1,4 +1,6 @@
-# Publons Flame
+=================
+Publons Flame
+=================
 
 This package is an often used part of our debug environment at Publons.
 It helps benchmark and explain long inefficiencies is pieces of code,
@@ -16,9 +18,9 @@ it as an SVG for you to share, while `InlineFlame` will render it in
 your IPython browser.
 
 
-#### Examples
+Examples
+--------
 
-```Python
     from publons_flame import FileFlame
 
 
@@ -27,12 +29,12 @@ your IPython browser.
 
         [len(u.email) for u in  User.objects.all()]
 
-```
+
+.. image::  https://raw.github.com/pulbons/publons-flame/master/docs/_static/file_flame_test.svg
 
 
-You can also optionally configure the width by adding the width kwarg
+You can also optionally configure the width by adding the kwarg
 
-```Python
-    with FileFlame('./file_flame_test.svg', option_kwargs={'width': 1000}):
-        # some expensive piece of code
-```
+    with FileFlame('./file_flame_test.svg', option_kwargs={'width': 1000})
+
+Where 1000 is the number of pixels.
