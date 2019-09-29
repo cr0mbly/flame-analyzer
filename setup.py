@@ -8,17 +8,17 @@ INSTALL_REQUIREMENTS = ['Django', 'IPYTHON']
 os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 setup(
-    name = 'publons-flame',
-    version = '0.1',
-    packages = ['publons_flame'],
-    include_package_data = True,
-    license = 'MIT License',
-    description = 'A small Django and IPython compatible application for benchmarking database and IO heavy work.',
-    long_description = README,
-    url = 'https://github.com/pulbons/publons-flame',
-    author = 'Matthew Betts, Aidan Houlihan',
-    author_email = 'aidan@publons.com',
-    classifiers =[
+    name='publons-flame',
+    version='0.1',
+    packages=['publons_flame'],
+    include_package_data=True,
+    license='MIT License',
+    description='A small Django and IPython compatible application for benchmarking database and IO heavy work.',
+    long_description=README,
+    url='https://github.com/pulbons/publons-flame',
+    author='Matthew Betts, Aidan Houlihan',
+    author_email='aidan@publons.com',
+    classifiers=[
         'Environment :: Web Environment',
         'Framework :: Django',
         'Intended Audience :: Developers',

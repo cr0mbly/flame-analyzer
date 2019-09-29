@@ -1,23 +1,18 @@
 from abc import abstractmethod, ABC
 import copy
-from datetime import datetime
 
-from django import db
-from IPython.core import display
-
+from .hooks import SetHookMixin
 from .sample import Sampler
 from .utils import (
     format_options,
     generate_flame_graph_html,
-    humanize_timedelta,
 )
 
-FLAME_FILE_WIDTH = 1904
-FLAME_IPYTHON_WIDTH = 1904
+DEFAULT_FLAME_WIDTH = 1904
 SAMPLE_INTERVAL = 0.001
 
 
-class BaseFlame(ABC):
+class BaseFlame(SetHookMixin, ABC):
     """
     Base context manager to sample a block of code.
     """
@@ -34,24 +29,19 @@ class BaseFlame(ABC):
         track functional and db calls.
         """
         self.sampler.start()
-        self.started = datetime.now()
-        db.reset_queries()
+
+        # Run the set enter hook. Allows for different
+        # user defined functionality.
+        self.enter_section_hook()
 
     def __exit__(self, type, value, traceback):
         """
         On Context completion dump the summed functional calls for display.
         """
         self.sampler.stop()  # Always stop the sampler.
-        time_taken = humanize_timedelta(
-            datetime.now() - self.started, precision='ms'
-        )
-
-        num_sql_queries = len(db.connection.queries)
 
         default_args, default_kwargs = self.get_defaults()
-        default_kwargs['title'] = (
-            f'Made {num_sql_queries} SQL queries in {time_taken}.'
-        )
+        default_kwargs = self.exit_section_hook(default_kwargs)
 
         options = format_options(
             default_args, default_kwargs, self.option_args, self.option_kwargs
@@ -79,19 +69,29 @@ class FileFlame(BaseFlame):
         super().__init__(**kwargs)
 
     def get_defaults(self):
-        return [], {'width': FLAME_FILE_WIDTH}
+        return [], {'width': DEFAULT_FLAME_WIDTH}
 
     def output(self, data):
         with open(self.path, 'w') as f:
             f.write(data)
 
+##
+# Support Ipython only if library is installed
+##
 
-class InlineFlame(BaseFlame):
-    """
-    Render FlameGraph HTML / SVG in an IPythonNotebook.
-    """
-    def get_defaults(self):
-        return [], {'width': FLAME_IPYTHON_WIDTH}
 
-    def output(self, data):
-        return display.display(display.SVG(data=data))
+try:
+    from IPython.core import display
+
+    class InlineFlame(BaseFlame):
+        """
+        Render FlameGraph HTML / SVG in an IPythonNotebook.
+        """
+        def get_defaults(self):
+            return [], {'width': DEFAULT_FLAME_WIDTH}
+
+        def output(self, data):
+            return display.display(display.SVG(data=data))
+
+except ImportError:
+    pass
