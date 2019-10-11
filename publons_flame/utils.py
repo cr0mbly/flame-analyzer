@@ -3,19 +3,21 @@ from xml.sax.saxutils import escape
 from pkg_resources import resource_filename
 
 
-def format_options(default_args, default_kwargs, option_args, option_kwargs):
+def format_options(options):
     """
-    Combine default args and kwargs with additional options.
     Returns a flattened list of options to pass to a process.
     """
+    options = {k, v for k, v in options.items() if v}
+    if 'title' in options:
+        options['title'] = escape(options['title'])
+
     result = [f'--{x}' for x in option_args] if option_args else default_args
 
     if option_kwargs:
         default_kwargs.update(option_kwargs)
 
     # Title is used directly in the SVG and invalid characters cause failures.
-    if 'title' in default_kwargs:
-        default_kwargs['title'] = escape(default_kwargs['title'])
+
 
     for k, v in default_kwargs.items():
         result.append('--' + k)
