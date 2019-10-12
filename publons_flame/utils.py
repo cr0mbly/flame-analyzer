@@ -7,19 +7,13 @@ def format_options(options):
     """
     Returns a flattened list of options to pass to a process.
     """
-    options = {k, v for k, v in options.items() if v}
+    options = {k: v for k, v in options.items() if v}
+
     if 'title' in options:
         options['title'] = escape(options['title'])
 
-    result = [f'--{x}' for x in option_args] if option_args else default_args
-
-    if option_kwargs:
-        default_kwargs.update(option_kwargs)
-
-    # Title is used directly in the SVG and invalid characters cause failures.
-
-
-    for k, v in default_kwargs.items():
+    result = []
+    for k, v in options.items():
         result.append('--' + k)
         result.append(str(v))
 
@@ -44,12 +38,12 @@ def generate_flame_graph_html(call_stack_sample, options):
     ])
 
     proc = subprocess.Popen(
-
         args=[resource_filename('publons_flame', 'flamegraph.pl'), *options],
         stdout=subprocess.PIPE,
         stdin=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        universal_newlines=True)
+        universal_newlines=True
+    )
     out, _ = proc.communicate(formatted)
 
     return out

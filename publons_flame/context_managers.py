@@ -1,11 +1,9 @@
 from abc import abstractmethod, ABC
 import copy
 
+from .hooks import TimeTakenHook
 from .sample import Sampler
-from .utils import (
-    format_options,
-    generate_flame_graph_html,
-)
+from .utils import generate_flame_graph_html, format_options
 
 DEFAULT_FLAME_WIDTH = 1904
 SAMPLE_INTERVAL = 0.001
@@ -15,9 +13,13 @@ class BaseFlame(ABC):
     """
     Base context manager to sample a block of code.
     """
-    def __init__(self, *, interval=SAMPLE_INTERVAL, options=None):
+    def __init__(
+        self, interval=SAMPLE_INTERVAL, flame_width=DEFAULT_FLAME_WIDTH, options={},
+    ):
         self.sampler = Sampler(interval)
-        self.option = copy.deepcopy(options)
+        self.options = copy.deepcopy(options)
+        self.options['width'] = flame_width
+
         self.hooks = [
             hook() for hook in self.get_hook_classes()
         ]
@@ -37,27 +39,21 @@ class BaseFlame(ABC):
         """
         self.sampler.stop()  # Always stop the sampler.
 
-        options = self.get_defaults()
-        options.update(self.options)
-
         for hook in self.hooks[::-1]:
             hook.after()
-            hook.modify_flame_options(options)
+            hook.modify_flame_options(self.options)
 
         # Only generate Flamegraph if we generated the sample successfully.
         if not traceback:
             html = generate_flame_graph_html(
                 self.sampler.sample,
-                format_options(options)
+                format_options(self.options),
             )
             self.output(html)
 
     @abstractmethod
     def output(self, html):
         pass
-
-    def get_defaults(self):
-        return {}
 
     def get_hook_classes(self):
         return getattr(self, 'hook_classes', [])
@@ -67,34 +63,56 @@ class FileFlame(BaseFlame):
     """
     Write an HTML / SVG at a given path.
     """
+
+    hook_classes = (TimeTakenHook,)
+
     def __init__(self, path, **kwargs):
         self.path = path
         super().__init__(**kwargs)
-
-    def get_defaults(self):
-        return [], {'width': DEFAULT_FLAME_WIDTH}
 
     def output(self, html):
         with open(self.path, 'w') as f:
             f.write(html)
 
 ##
-# Support Ipython only if library is installed
+# Implementations supported in base publons_flame, availability dependent on
+# implementers installed libraries. Out of the box publons_flame supports
+# - FileFlame (File saved base implementation)
+# - InlineFlame (IPython base implementation)
+# - DjangoInlineFlame (Django tuned Ipython implementation)
+# - DjangoFileFlame (Django tuned file stored implementation)
 ##
 
 
 try:
-    from IPython.core import display
+    from .hooks import DjangoSQLQueriesHook
+    django_hook = DjangoSQLQueriesHook
+except ImportError:
+    django_hook = None
 
+
+try:
+    from IPython.core import display
+    ipython_display = display
+except ImportError:
+    ipython_display = None
+
+
+if ipython_display:
     class InlineFlame(BaseFlame):
         """
         Render FlameGraph HTML / SVG in an IPythonNotebook.
         """
-        def get_defaults(self):
-            return [], {'width': DEFAULT_FLAME_WIDTH}
+        hook_classes = (TimeTakenHook,)
 
         def output(self, html):
-            return display.display(display.SVG(data=data))
+            return ipython_display.display(ipython_display.SVG(data=html))
 
-except ImportError:
-    pass
+
+if django_hook:
+    class DjangoFileFlame(FileFlame):
+        hook_classes = (TimeTakenHook, django_hook)
+
+if ipython_display and django_hook:
+    class DjangoInlineFlame(InlineFlame):
+        hook_classes = (TimeTakenHook, django_hook)
