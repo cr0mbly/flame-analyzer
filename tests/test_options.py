@@ -1,61 +1,41 @@
 from unittest import TestCase
 from unittest.mock import patch
 
-import sys
-sys.path.append("..")
-
-from ..context_managers import BaseFlame
-
+from ..publons_flame.context_managers import BaseFlame, DEFAULT_FLAME_WIDTH
 
 
 class TestOptions(TestCase):
+
+    class TestFlame(BaseFlame):
+        def output(self, html):
+            pass
 
     def test_none(self):
         """
         Test nothing is passed when when no options are passed.
         """
-        class NoOutputFlame(BaseFlame):
-            def output(self, html):
-                pass
-
         self.assert_generate_flame_graph_html_called_with_options(
-            NoOutputFlame(),
-            []
+            self.TestFlame(),
+            ['--width', str(DEFAULT_FLAME_WIDTH)]
         )
 
     def test_class_options(self):
         """
         Test class options are formatted correctly.
         """
-        class NoOutputFlame(BaseFlame):
-            def get_defaults(self):
-                return {'title': 'Default', 'reverse': ''}
-
-            def output(self, html):
-                pass
-
         self.assert_generate_flame_graph_html_called_with_options(
-            NoOutputFlame(),
-            ['--reverse', '--title', 'Default']
+            self.TestFlame(options={'title': 'Default', 'reverse': True}),
+            ['--title', 'Default', '--reverse', '--width', str(DEFAULT_FLAME_WIDTH)]
         )
 
     def test_init_options(self):
         """
         Test init options should override class options.
         """
-        class NoOutputFlame(BaseFlame):
-            def get_defaults(self):
-                return {'title': 'Default', 'reverse': None}
-
-            def output(self, html):
-                pass
-
         self.assert_generate_flame_graph_html_called_with_options(
-            NoOutputFlame(
-                {'title': 'Default'}
-            )
+            self.TestFlame(options={'title': 'Default', 'reverse': None}),
             # Reverse has been removed as it was passed as None.
-            ['--title', 'Test']
+            ['--title', 'Default', '--width', str(DEFAULT_FLAME_WIDTH)]
         )
 
     def test_hook_options(self):
@@ -67,31 +47,32 @@ class TestOptions(TestCase):
             def after(self):
                 pass
 
-            def modify_flame_options(self, options):
-                options['title'] += '-Modified'
-                options['fontsize'] = 20
-                del options['reverse']
+            def modify_flame_options(self, flame_options):
+                flame_options['title'] += '-Modified'
+                flame_options['fontsize'] = 40
+                del flame_options['reverse']
+                return flame_options
 
-        class NoOutputFlame(BaseFlame):
+        class TestHookFlame(BaseFlame):
 
-            hook_classes = [SetOptionHook]
-
-            def get_defaults(self):
-                return ['reverse'], {'title': 'Default'}
+            hook_classes = (SetOptionHook,)
 
             def output(self, html):
                 pass
 
         self.assert_generate_flame_graph_html_called_with_options(
-            NoOutputFlame(),
-            ['--title', 'Test-Modified', '--fontsize', '20']
+            TestHookFlame(
+                options={'reverse': True, 'fontsize': 20, 'title': 'Test'}
+            ),
+            [
+                '--fontsize', '40', '--title', 'Test-Modified',
+                '--width', str(DEFAULT_FLAME_WIDTH)
+            ]
         )
 
-
     def assert_generate_flame_graph_html_called_with_options(self, instance, options):
-        sampler_patch = patch('publons_flame.context_managers.Sampler')
         generate_flame_graph_patch = patch(
-            'publons_flame.context_managers.generate_flame_graph_html'
+            'publons_flame.publons_flame.context_managers.generate_flame_graph_html'
         )
 
         with generate_flame_graph_patch as fn:

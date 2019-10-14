@@ -7,15 +7,18 @@ def format_options(options):
     """
     Returns a flattened list of options to pass to a process.
     """
-    options = {k: v for k, v in options.items() if v}
-
     if 'title' in options:
         options['title'] = escape(options['title'])
 
     result = []
-    for k, v in options.items():
-        result.append('--' + k)
-        result.append(str(v))
+    for option, value in options.items():
+        # Add settings arg to flame if truthy value is present.
+        if value:
+            result.append('--' + option)
+
+        # only include those values which are actual settings.
+        if value and value is not True:
+            result.append(str(value))
 
     return result
 
