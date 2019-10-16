@@ -28,6 +28,9 @@ class TimeTakenHook:
         return flame_options
 
 
+"""
+Only add hooks that have the required libaries installed.
+"""
 try:
     from django import db
 
@@ -35,6 +38,9 @@ try:
         """
         Append the number of SQL queries made to the flame graphs title.
         """
+
+        num_sql_queries = 0
+
         def before(self):
             db.reset_queries()
 
@@ -49,4 +55,4 @@ try:
             return flame_options
 
 except ImportError:
-    pass  # Django not installed.
+    pass
