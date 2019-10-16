@@ -14,10 +14,10 @@ class BaseFlame(ABC):
     Base context manager to sample a block of code.
     """
     def __init__(
-        self, interval=SAMPLE_INTERVAL, flame_width=DEFAULT_FLAME_WIDTH, options={},
+        self, interval=SAMPLE_INTERVAL, flame_width=DEFAULT_FLAME_WIDTH, options=None,
     ):
         self.sampler = Sampler(interval)
-        self.options = copy.deepcopy(options)
+        self.options = copy.deepcopy(options) if options is not None else {}
         self.options['width'] = flame_width
 
         self.hooks = [
