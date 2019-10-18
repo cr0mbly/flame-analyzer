@@ -3,23 +3,22 @@ from xml.sax.saxutils import escape
 from pkg_resources import resource_filename
 
 
-def format_options(default_args, default_kwargs, option_args, option_kwargs):
+def format_options(options):
     """
-    Combine default args and kwargs with additional options.
     Returns a flattened list of options to pass to a process.
     """
-    result = [f'--{x}' for x in option_args] if option_args else default_args
+    if 'title' in options:
+        options['title'] = escape(options['title'])
 
-    if option_kwargs:
-        default_kwargs.update(option_kwargs)
+    result = []
+    for option, value in options.items():
+        # Add settings arg to flame if truthy value is present.
+        if value:
+            result.append('--' + option)
 
-    # Title is used directly in the SVG and invalid characters cause failures.
-    if 'title' in default_kwargs:
-        default_kwargs['title'] = escape(default_kwargs['title'])
-
-    for k, v in default_kwargs.items():
-        result.append('--' + k)
-        result.append(str(v))
+        # only include those values which are actual settings.
+        if value and value is not True:
+            result.append(str(value))
 
     return result
 
@@ -42,12 +41,12 @@ def generate_flame_graph_html(call_stack_sample, options):
     ])
 
     proc = subprocess.Popen(
-
         args=[resource_filename('publons_flame', 'flamegraph.pl'), *options],
         stdout=subprocess.PIPE,
         stdin=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        universal_newlines=True)
+        universal_newlines=True
+    )
     out, _ = proc.communicate(formatted)
 
     return out
