@@ -1,4 +1,4 @@
-# Publons Flame
+# Flame analyzer
 
 This package is an often used part of our debug environment at Publons.
 It helps benchmark and explain inefficiencies is pieces of code,
@@ -24,7 +24,7 @@ your IPython browser.
 Saving a Flame graph to an SVG can be done with the following benchmarking code
 
 ```Python
-    from publons_flame import FileFlame
+    from flame_analyzer import FileFlame
 
 
     with FileFlame('./file_flame_test.svg'):
@@ -35,7 +35,7 @@ Saving a Flame graph to an SVG can be done with the following benchmarking code
 Or directly to the IPython notebook
 
 ```Python
-    from publons_flame import InlineFlame
+    from flame_analyzer import InlineFlame
 
 
     with InlineFlame():
@@ -57,7 +57,7 @@ By default both IPython and Django are optional imports meaning you can install 
 
 ```Python
 
-from publons_flame import InlineFlame
+from flame_analyzer import InlineFlame
 
 class CustomHook:
     """
