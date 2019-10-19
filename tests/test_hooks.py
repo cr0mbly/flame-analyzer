@@ -2,7 +2,7 @@ from time import sleep
 from unittest import TestCase
 from unittest.mock import patch
 
-from ..publons_flame.hooks import TimeTakenHook
+from ..flame_analyzer.hooks import TimeTakenHook
 
 
 class TestTimeTakeHook(TestCase):
@@ -22,7 +22,7 @@ class TestTimeTakeHook(TestCase):
 
 
 try:
-    from ..publons_flame.hooks import DjangoSQLQueriesHook
+    from ..flame_analyzer.hooks import DjangoSQLQueriesHook
 
     class TestDjangoSQLQueriesHook(TestCase):
 
@@ -32,7 +32,7 @@ try:
             num_sql_queries = 2
 
             with patch(
-                'publons_flame.publons_flame.hooks.'
+                'flame_analyzer.flame_analyzer.hooks.'
                 'DjangoSQLQueriesHook.num_sql_queries',
                 num_sql_queries
             ):

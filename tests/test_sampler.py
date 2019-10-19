@@ -1,8 +1,8 @@
 from time import sleep
 from unittest import TestCase
 
-from ..publons_flame.context_managers import SAMPLE_INTERVAL
-from ..publons_flame.sample import Sampler, FunctionCall
+from ..flame_analyzer.context_managers import SAMPLE_INTERVAL
+from ..flame_analyzer.sample import Sampler, FunctionCall
 
 
 class TestFunctionCallSampler(TestCase):

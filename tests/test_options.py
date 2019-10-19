@@ -1,7 +1,7 @@
 from unittest import TestCase
 from unittest.mock import patch
 
-from ..publons_flame.context_managers import BaseFlame, DEFAULT_FLAME_WIDTH
+from ..flame_analyzer.context_managers import BaseFlame, DEFAULT_FLAME_WIDTH
 
 
 class TestOptions(TestCase):
@@ -72,7 +72,7 @@ class TestOptions(TestCase):
 
     def assert_generate_flame_graph_html_called_with_options(self, instance, options):
         generate_flame_graph_patch = patch(
-            'publons_flame.publons_flame.context_managers.generate_flame_graph_html'
+            'flame_analyzer.flame_analyzer.context_managers.generate_flame_graph_html'
         )
 
         with generate_flame_graph_patch as fn:
