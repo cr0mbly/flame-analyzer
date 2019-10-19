@@ -22,7 +22,7 @@ class TimeTakenHook:
 
     def modify_flame_options(self, flame_options):
         title = flame_options.get('title', '')
-        title += f'Excecuted context in {self.time_taken}.'
+        title += f'Excecuted context in {self.time_taken}. '
         flame_options['title'] = title
 
         return flame_options
@@ -49,7 +49,7 @@ try:
 
         def modify_flame_options(self, flame_options):
             title = flame_options.get('title', '')
-            title += f'Made {self.num_sql_queries} SQL queries.'
+            title += f'Made {self.num_sql_queries} SQL queries. '
             flame_options['title'] = title
 
             return flame_options
