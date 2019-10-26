@@ -33,7 +33,7 @@ def generate_flame_graph_html(call_stack_sample, options):
         # identical stacks together.
         stack_count = 1
 
-        return ';'.join(str(fn_call) for fn_call in stack) + f' {stack_count}'
+        return ';'.join(str(fn_call) for fn_call in stack) + ' {}'.format(stack_count)
 
     formatted = '\n'.join([
         format_stack(stack)

@@ -36,6 +36,6 @@ class TestDjangoSQLQueriesHook(TestCase):
             modified_options = self.hook.modify_flame_options({})
 
         self.assertEqual(
-            f'Made {num_sql_queries} SQL queries. ',
+            'Made {} SQL queries. '.format(num_sql_queries),
             modified_options['title']
         )

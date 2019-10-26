@@ -92,7 +92,7 @@ class FunctionCall:
         return False
 
     def __str__(self):
-        return f'{self.name}({self.path})'
+        return '{}({})'.format(self.name, self.path)
 
     def __repr__(self):
         return str(self)
