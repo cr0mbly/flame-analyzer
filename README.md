@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.com/publons/flame-analyzer.svg?token=WSHb2ssbuqzAyoqCvdCs&branch=master)](https://travis-ci.com/publons/flame-analyzer)
+
 # Flame analyzer
 
 This package is an often used part of our debug environment at Publons.
