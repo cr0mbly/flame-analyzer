@@ -78,4 +78,9 @@ class TestOptions(TestCase):
         with generate_flame_graph_patch as fn:
             instance.__enter__()
             instance.__exit__(None, None, None)
-            fn.assert_called_with(instance.sampler.sample, options)
+
+            generated_sampler, formatted_options = fn.call_args_list[0][0]
+
+            # Assert that the called parameters match
+            self.assertEqual(instance.sampler.sample, generated_sampler)
+            self.assertEqual(options, formatted_options)
