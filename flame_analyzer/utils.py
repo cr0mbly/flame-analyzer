@@ -41,7 +41,7 @@ def generate_flame_graph_html(call_stack_sample, options):
     ])
 
     proc = subprocess.Popen(
-        args=[resource_filename(__name__, 'flamegraph.pl'), *options],
+        args=[resource_filename(__name__, 'flamegraph.pl')] + options,
         stdout=subprocess.PIPE,
         stdin=subprocess.PIPE,
         stderr=subprocess.STDOUT,
