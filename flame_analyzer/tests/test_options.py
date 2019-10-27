@@ -83,4 +83,4 @@ class TestOptions(TestCase):
 
             # Assert that the called parameters match
             self.assertEqual(instance.sampler.sample, generated_sampler)
-            self.assertEqual(options, formatted_options)
+            self.assertEqual(set(options), set(formatted_options))
