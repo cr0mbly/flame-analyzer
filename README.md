@@ -91,7 +91,10 @@ with CustomInlineFlame(flame_width=500):
     print(total_email_length)
 ```
 
-![image](https://user-images.githubusercontent.com/6813352/67134922-471fbf80-f271-11e9-9ed7-b31354af6ab2.png)
+
+Outputs the resulting flame graph:
+
+![Screenshot from 2019-10-28 13-48-27](https://user-images.githubusercontent.com/6813352/67644837-bab87f80-f989-11e9-941a-0b1455a49f33.png)
 
 Credits to the following projects:
  - https://github.com/brendangregg/FlameGraph
