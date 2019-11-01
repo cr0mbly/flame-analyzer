@@ -96,17 +96,10 @@ with CustomInlineFlame(flame_width=500):
     print(total_email_length)
 ```
 
-<<<<<<< HEAD
 Outputs the IPython viewed Graph:
 
 ![image](https://user-images.githubusercontent.com/6813352/68050764-c1107800-fd4a-11e9-94a2-8ab0bc564617.png)
 
-=======
-
-Outputs the resulting flame graph:
-
-![Screenshot from 2019-10-28 13-48-27](https://user-images.githubusercontent.com/6813352/67644837-bab87f80-f989-11e9-941a-0b1455a49f33.png)
->>>>>>> 0fae15d4d0a69d5bfc7e4401d8a17c01ff461c31
 
 Credits to the following projects:
  - https://github.com/brendangregg/FlameGraph
