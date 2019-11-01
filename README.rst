@@ -92,7 +92,7 @@ and adding to the output flame type your wanting for example:::
         print(total_email_length)
 
 
-Outputs the IPython viewed Graph:
+Outputs the IPython viewed Graph
 
 .. image:: https://user-images.githubusercontent.com/6813352/68050764-c1107800-fd4a-11e9-94a2-8ab0bc564617.png
 

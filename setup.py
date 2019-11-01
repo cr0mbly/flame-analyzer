@@ -8,13 +8,14 @@ os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 setup(
     name='flame-analyzer',
-    version='0.1.1',
+    version='0.1.3',
     packages=find_packages(
         include=['flame_analyzer'], exclude=('tests')
     ),
     package_data={'flame_analyzer': ['*.pl']},
     include_package_data=True,
     license='MIT License',
+    long_description=README,
     description=(
         'A small Django and IPython compatible application for benchmarking '
         'database and IO heavy work.'
