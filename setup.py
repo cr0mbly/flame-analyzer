@@ -1,15 +1,17 @@
 import os
 from setuptools import setup, find_packages
 
-README = open(os.path.join(os.path.dirname(__file__), 'README.md')).read()
+README = open(os.path.join(os.path.dirname(__file__), 'README.rst')).read()
 
 # Allow setup.py to be run from any path
 os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 setup(
     name='flame-analyzer',
-    version='0.1',
-    packages=find_packages(include=['flame_analyzer'], exclude=("tests")),
+    version='0.1.1',
+    packages=find_packages(
+        include=['flame_analyzer'], exclude=('tests')
+    ),
     package_data={'flame_analyzer': ['*.pl']},
     include_package_data=True,
     license='MIT License',
@@ -17,7 +19,6 @@ setup(
         'A small Django and IPython compatible application for benchmarking '
         'database and IO heavy work.'
     ),
-    long_description=README,
     url='https://github.com/publons/flame-analyzer',
     author='Matthew Betts, Aidan Houlihan',
     author_email='aidan@publons.com',

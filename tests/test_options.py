@@ -1,7 +1,7 @@
 from unittest import TestCase
 from unittest.mock import patch
 
-from ..context_managers import BaseFlame, DEFAULT_FLAME_WIDTH
+from flame_analyzer.context_managers import BaseFlame, DEFAULT_FLAME_WIDTH
 
 
 class TestOptions(TestCase):

@@ -3,7 +3,8 @@
 # Flame analyzer
 
 This package is an often used part of our debug environment at Publons.
-It helps benchmark and explain inefficiencies in pieces of code as well as our dependencies on different service response times.
+It helps benchmark and explain inefficiencies in pieces of code as well as our
+dependencies on different service response times.
 
 
 There are four kinds of Context managers we support with this package
@@ -14,9 +15,9 @@ There are four kinds of Context managers we support with this package
 - DjangoInlineFlame
 
 They all serve the same use case outputting a Flame graph to your
-machine for you to dive into and debug your code. `FileFlame`/`DjangoFileFlame` save the graph
-to an SVG for you to share, while `InlineFlame`/`DjangoInlineFlame` will render it in
-your IPython browser.
+machine for you to dive into and debug your code. `FileFlame`/`DjangoFileFlame`
+save the graph to an SVG for you to share, while `InlineFlame`/`DjangoInlineFlame`
+will render it in your IPython browser.
 
 
 ### Examples
@@ -49,7 +50,7 @@ You can also optionally configure the width by adding the width kwarg
 
 ```Python
     with FileFlame(
-        './file_flame_test.svg', flame_width=1200, 
+        './file_flame_test.svg', flame_width=1200,
         options={'title': 'This is my test title'}
     ):
         # some expensive piece of code
@@ -57,7 +58,11 @@ You can also optionally configure the width by adding the width kwarg
 
 ### Extensions
 
-By default both IPython and Django are optional imports meaning you can install this libarary and use it in the terminal to debug your app code without them installed. Support can be added for other Database frameworks or if your wanting to hook into the context enter/exit methods by creating your own hooks and adding to the output flame type your wanting for example:
+By default both IPython and Django are optional imports meaning you can install
+this library and use it in the terminal to debug your app code without them
+installed. Support can be added for other Database frameworks or if your wanting
+to hook into the context enter/exit methods by creating your own hooks and adding
+to the output flame type your wanting for example:
 
 ```Python
 
@@ -82,7 +87,7 @@ class CustomHook:
 class CustomInlineFlame(InlineFlame):
     hook_classes = (CustomHook,)
 
-    
+
 
 with CustomInlineFlame(flame_width=500):
     total_email_length = 0
@@ -91,7 +96,10 @@ with CustomInlineFlame(flame_width=500):
     print(total_email_length)
 ```
 
-![image](https://user-images.githubusercontent.com/6813352/67134922-471fbf80-f271-11e9-9ed7-b31354af6ab2.png)
+Outputs the IPython viewed Graph:
+
+![image](https://user-images.githubusercontent.com/6813352/68050764-c1107800-fd4a-11e9-94a2-8ab0bc564617.png)
+
 
 Credits to the following projects:
  - https://github.com/brendangregg/FlameGraph
