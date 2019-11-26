@@ -16,7 +16,7 @@ class TestTimeTakeHook(TestCase):
 
         modified_options = self.hook.modify_flame_options({})
         self.assertEqual(
-            'Excecuted context in a second. ',
+            'Excecuted context in {}. '.format(self.hook.time_taken),
             modified_options['title'],
         )
 

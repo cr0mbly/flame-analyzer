@@ -1,7 +1,5 @@
 from datetime import datetime
 
-from humanize import naturaldelta
-
 """
 Hooks allow the flamegraph functionality to be extended in a framework specific
 way. By default TimeTakenHook is set but depending on your stack you can further
@@ -18,7 +16,7 @@ class TimeTakenHook:
         self.started = datetime.now()
 
     def after(self):
-        self.time_taken = naturaldelta(datetime.now() - self.started)
+        self.time_taken = str(datetime.now() - self.started)
 
     def modify_flame_options(self, flame_options):
         title = flame_options.get('title', '')
