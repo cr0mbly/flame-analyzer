@@ -8,7 +8,7 @@ os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 setup(
     name='flame-analyzer',
-    version='0.1.4',
+    version='0.1.5',
     packages=find_packages(
         include=['flame_analyzer'], exclude=('tests')
     ),
@@ -20,9 +20,6 @@ setup(
         'A small Django and IPython compatible application for benchmarking '
         'database and IO heavy work.'
     ),
-    install_requires=[
-        'humanize',
-    ],
     url='https://github.com/publons/flame-analyzer',
     author='Matthew Betts, Aidan Houlihan',
     author_email='aidan@publons.com',

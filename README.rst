@@ -2,6 +2,9 @@
 Flame analyzer
 =================
 
+.. image:: https://travis-ci.com/publons/flame-analyzer.svg?branch=master
+    :target: https://travis-ci.com/publons/flame-analyzer
+
 This package is an often used part of our debug environment at Publons.
 It helps benchmark and explain inefficiencies in pieces of code as well as
 our dependencies on different service response times.
@@ -23,7 +26,8 @@ Examples
 --------
 
 Saving a Flame graph to an SVG can be done with the following benchmarking
-code::
+
+.. code-block:: python
 
     from flame_analyzer import FileFlame
 
@@ -32,7 +36,9 @@ code::
         # Some expensive piece of code.
         [len(u.email) for u in  User.objects.all()]
 
-Or directly to the IPython notebook::
+Or directly to the IPython notebook
+
+.. code-block:: python
 
     from flame_analyzer import InlineFlame
 
@@ -41,9 +47,9 @@ Or directly to the IPython notebook::
         # Some expensive piece of code.
         [len(u.email) for u in  User.objects.all()]
 
+You can also optionally configure the width by adding the width kwarg
 
-
-You can also optionally configure the width by adding the width kwarg::
+.. code-block:: python
 
     with FileFlame(
         './file_flame_test.svg', flame_width=1200,
@@ -60,7 +66,9 @@ By default both IPython and Django are optional imports meaning you can install
 this library and use it in the terminal to debug your app code without them
 installed. Support can be added for other Database frameworks or if your
 wanting to hook into the context enter/exit methods by creating your own hooks
-and adding to the output flame type your wanting for example:::
+and adding to the output flame type your wanting for example
+
+.. code-block:: python
 
     from flame_analyzer import InlineFlame
 
@@ -82,8 +90,6 @@ and adding to the output flame type your wanting for example:::
 
     class CustomInlineFlame(InlineFlame):
         hook_classes = (CustomHook,)
-
-
 
     with CustomInlineFlame(flame_width=500):
         total_email_length = 0
