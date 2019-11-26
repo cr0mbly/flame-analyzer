@@ -20,7 +20,7 @@ class TimeTakenHook:
 
     def modify_flame_options(self, flame_options):
         title = flame_options.get('title', '')
-        title += 'Excecuted context in {}. '.format(self.time_taken)
+        title += 'Executed context in {}. '.format(self.time_taken)
         flame_options['title'] = title
 
         return flame_options
